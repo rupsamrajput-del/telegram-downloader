@@ -3,177 +3,176 @@ import time
 import telebot
 import yt_dlp
 
-# ==========================================
-# BOT TOKEN - Railway Environment Variable
-# ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+from telebot import apihelper
+from requests.exceptions import ConnectionError, ReadTimeout
 
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN environment variable is missing.")
+# ==============================
+# RD3B4T DOWNLOADER BOT
+# ==============================
 
-bot = telebot.TeleBot(
-    BOT_TOKEN,
-    parse_mode="HTML"
-)
+BOT_TOKEN = "8646123624:AAEnze6MUIBvWLW0hW55hcJElKVXsqUOBdI"
+
+bot = telebot.TeleBot(BOT_TOKEN)
+
+# ==============================
+# TELEGRAM FIX
+# ==============================
+
+apihelper.READ_TIMEOUT = 60
+apihelper.CONNECT_TIMEOUT = 60
+apihelper.RETRY_ON_ERROR = True
+
+# ==============================
+# DOWNLOAD FOLDER
+# ==============================
 
 DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-SIGNATURE = "@RD3B4T"
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
 
+# ==============================
+# START COMMAND
+# ==============================
 
-# ==========================================
-# START
-# ==========================================
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(
-        message,
-        "👋 <b>Добро пожаловать!</b>\n\n"
-        "👇 Нажмите по кнопке снизу\n\n"
-        "📥 Send me a public video URL.\n\n"
-        f"🤖 {SIGNATURE}"
-    )
+    text = """
+🔥 RD3B4T DOWNLOADER 🔥
 
+✅ Instagram
+✅ Facebook
+✅ YouTube
+✅ WhatsApp Public Links
+✅ Pinterest
 
-# ==========================================
-# DOWNLOAD
-# ==========================================
-@bot.message_handler(func=lambda message: True)
-def download_media(message):
+⚡ Fast Download
+⚡ HD Quality
+⚡ Stable System
 
-    url = (message.text or "").strip()
+📌 Send Video Link
+"""
+    bot.reply_to(message, text)
 
-    if not url.startswith(("http://", "https://")):
-        bot.reply_to(
-            message,
-            "❌ <b>Invalid URL</b>\n\n"
-            "Please send a valid public video link.\n\n"
-            f"🤖 {SIGNATURE}"
-        )
-        return
+# ==============================
+# DOWNLOAD FUNCTION
+# ==============================
 
-    status = bot.reply_to(
-        message,
-        "⏳ <b>Downloading...</b>\n\n"
-        f"🤖 {SIGNATURE}"
-    )
-
-    output_template = os.path.join(
-        DOWNLOAD_DIR,
-        "%(title).80s.%(ext)s"
-    )
-
+def download_video(url):
     ydl_opts = {
-        "outtmpl": output_template,
-        "format": (
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
-            "best[ext=mp4]/best"
-        ),
-        "merge_output_format": "mp4",
-        "noplaylist": True,
-        "retries": 5,
-        "fragment_retries": 5,
-        "socket_timeout": 60,
-        "quiet": True,
-        "no_warnings": True,
+        'format': 'best[height<=720][ext=mp4]/best',
+        'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'noprogress': True,
+        'socket_timeout': 30,
+        'retries': 10,
+        'fragment_retries': 10,
+        'nocheckcertificate': True,
+        'noplaylist': True
     }
 
-    filename = None
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info)
+
+        mp4_file = file_path.rsplit(".", 1)[0] + ".mp4"
+        if os.path.exists(mp4_file):
+            file_path = mp4_file
+
+        if not os.path.exists(file_path):
+            return None
+
+        if os.path.getsize(file_path) == 0:
+            return None
+
+        return file_path
+
+# ==============================
+# HANDLE LINKS
+# ==============================
+
+@bot.message_handler(func=lambda m: True)
+def downloader(message):
+    url = message.text.strip()
+
+    allowed = [
+        "instagram.com",
+        "facebook.com",
+        "fb.watch",
+        "youtube.com",
+        "youtu.be",
+        "whatsapp.com",
+        "wa.me",
+        "pinterest.com"
+    ]
+
+    if not any(site in url for site in allowed):
+        bot.reply_to(message, "❌ Unsupported Link")
+        return
+
+    wait = bot.reply_to(message, "⚡ Downloading...")
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
+        file_path = download_video(url)
 
-            if not os.path.exists(filename):
-                base, _ = os.path.splitext(filename)
-                mp4_file = base + ".mp4"
-
-                if os.path.exists(mp4_file):
-                    filename = mp4_file
-
-        if not filename or not os.path.exists(filename):
-            bot.edit_message_text(
-                "❌ <b>Download failed.</b>\n\n"
-                f"🤖 {SIGNATURE}",
-                message.chat.id,
-                status.message_id
-            )
+        if not file_path:
+            bot.reply_to(message, "❌ Download Failed")
             return
 
-        bot.edit_message_text(
-            "📤 <b>Uploading...</b>\n\n"
-            f"🤖 {SIGNATURE}",
-            message.chat.id,
-            status.message_id
-        )
+        file_size = os.path.getsize(file_path)
 
-        with open(filename, "rb") as video:
-            bot.send_video(
-                message.chat.id,
-                video,
-                caption=(
-                    "✅ <b>Download complete!</b>\n\n"
-                    f"🤖 {SIGNATURE}"
-                ),
-                supports_streaming=True,
-                timeout=120
-            )
+        # Telegram standard bot upload limit is 50MB
+        if file_size > 49 * 1024 * 1024:
+            with open(file_path, "rb") as file:
+                bot.send_document(
+                    message.chat.id,
+                    file,
+                    timeout=120,
+                    caption="🔥 Downloaded By RD3B4T"
+                )
+        else:
+            with open(file_path, "rb") as video:
+                bot.send_video(
+                    message.chat.id,
+                    video,
+                    supports_streaming=True,
+                    timeout=120,
+                    caption="🔥 Downloaded By RD3B4T"
+                )
 
+        # Clean up downloaded file
         try:
-            os.remove(filename)
+            os.remove(file_path)
         except Exception:
             pass
 
+        # Delete processing message
         try:
-            bot.delete_message(
-                message.chat.id,
-                status.message_id
-            )
+            bot.delete_message(message.chat.id, wait.message_id)
         except Exception:
             pass
 
     except Exception as e:
-        print("DOWNLOAD ERROR:", e)
+        bot.reply_to(message, f"❌ Error:\n{e}")
 
-        try:
-            if filename and os.path.exists(filename):
-                os.remove(filename)
-        except Exception:
-            pass
+# ==============================
+# RUN BOT
+# ==============================
 
-        try:
-            bot.edit_message_text(
-                "❌ <b>Download failed.</b>\n\n"
-                "The URL may be private, unsupported, "
-                "or temporarily unavailable.\n\n"
-                f"🤖 {SIGNATURE}",
-                message.chat.id,
-                status.message_id
-            )
-        except Exception:
-            pass
-
-
-# ==========================================
-# START BOT + AUTO RECONNECT
-# ==========================================
-print("🤖 @RD3B4T Downloader Bot is starting...")
+print("🔥 RD3B4T BOT STARTED 🔥")
 
 while True:
     try:
-        print("🔄 Connecting to Telegram...")
-
         bot.infinity_polling(
             timeout=60,
             long_polling_timeout=60,
-            skip_pending=True,
-            allowed_updates=["message"]
+            skip_pending=True
         )
-
-    except Exception as e:
-        print("⚠️ Telegram connection error:")
-        print(e)
-        print("🔁 Retrying in 5 seconds...")
+    except (ConnectionError, ReadTimeout):
+        print("⚠️ Reconnecting...")
         time.sleep(5)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        time.sleep(5)
+        
